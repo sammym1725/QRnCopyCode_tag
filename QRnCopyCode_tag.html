@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voucher Code Generator for Roots 100</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        #qrCode {
+            margin-top: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            margin: 5px;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        button:hover:not(:disabled) {
+            background-color: #45a049;
+        }
+        #status {
+            margin-top: 10px;
+            color: #666;
+        }
+        #codeContainer {
+            margin-top: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        #codeText {
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+        #copyButton {
+            background-color: #008CBA;
+        }
+        #copyButton:hover:not(:disabled) {
+            background-color: #007B9A;
+        }
+        #copyButton.copied {
+            background-color: #d4edda;
+        }
+        #receiptInput {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Voucher Code Generator for Roots 100</h1>
+    <button id="nextButton" onclick="showNextQR()">Next</button>
+    <div id="status">Loading data...</div>
+    <div id="codeContainer">
+        <div id="codeText">Click to copy code</div>
+        <button id="copyButton" onclick="copyToClipboard()">Copy</button>
+        <input id="receiptInput" type="text" placeholder="Enter receipt number">
+    </div>
+    <div id="qrCode"></div>
+
+    <script>
+        let qrcode = new QRCode(document.getElementById("qrCode"), {
+            width: 200,
+            height: 200
+        });
+        let sheetData = [];
+        let currentIndex = 0;
+        const codeTextDiv = document.getElementById("codeText");
+        const copyButton = document.getElementById("copyButton");
+        const nextButton = document.getElementById("nextButton");
+        const receiptInput = document.getElementById("receiptInput");
+
+        const sheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT2QJ0jAZNPj868g6S9sKmdFLtJAu5ZEIG13ytv_gKxtzs4q6wKooCdR-13em3bSlkG4yUjMF5S3-E5/pub?output=csv"; // Replace with CSV URL from Step 1
+        const scriptUrl = "https://script.google.com/macros/s/AKfycbzEJ0oEBs8kRV1eVxmv9gH7EXDA-GGkIi7r9TkqkblZdhKRreK3YqbC5G1y3QbuPisu/exec";
+
+        async function fetchSheetData() {
+            try {
+                const status = document.getElementById("status");
+                status.textContent = "Fetching data from Google Sheets...";
+                
+                const response = await fetch(sheetUrl);
+                if (!response.ok) throw new Error(`Failed to fetch sheet data. Status: ${response.status}`);
+                
+                const text = await response.text();
+                console.log("Raw CSV text:", text);
+                const rows = text.split('\n').filter(row => row.trim() !== '');
+                sheetData = rows.map(row => row.split(',')[0].trim());
+                console.log("Parsed sheetData:", sheetData);
+                console.log("Number of items:", sheetData.length);
+
+                if (sheetData.length === 0) {
+                    throw new Error("No data found in column A");
+                }
+
+                status.textContent = "Data loaded. Showing first item.";
+                showNextQR();
+            } catch (error) {
+                status.textContent = `Error: ${error.message}. Check sheet URL and publication settings.`;
+                codeTextDiv.textContent = "No code available";
+                copyButton.disabled = true;
+                qrcode.clear();
+            }
+        }
+
+        async function tagVoucher(voucher) {
+            const receipt = receiptInput.value.trim();
+            if (!receipt) {
+                console.error("No receipt number entered");
+                alert("Please enter a receipt number before clicking Next.");
+                return;
+            }
+            const timestamp = new Date().toLocaleString();
+            const data = { voucher, receipt, timestamp };
+            console.log("Attempting to tag:", data);
+
+            try {
+                const response = await fetch(scriptUrl, {
+                    method: 'POST',
+                    body: JSON.stringify(data),
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (!response.ok) throw new Error(`Failed to tag voucher. Status: ${response.status}`);
+                console.log(`Tagged ${voucher} with ${receipt} at ${timestamp}`);
+            } catch (error) {
+                console.error("Error tagging voucher:", error);
+                alert("Failed to tag voucher. Check console for details.");
+            }
+        }
+
+        async function showNextQR() {
+            if (currentIndex >= sheetData.length) {
+                document.getElementById("status").textContent = "No more voucher codes.";
+                nextButton.disabled = true;
+                copyButton.disabled = true;
+                qrcode.clear();
+                codeTextDiv.textContent = "No more codes";
+                receiptInput.value = "";
+                return;
+            }
+
+            const currentCode = sheetData[currentIndex];
+            document.getElementById("status").textContent = 
+                `Showing QR for: "${currentCode}" (Row ${currentIndex + 1})`;
+            codeTextDiv.textContent = currentCode;
+            copyButton.disabled = false;
+            qrcode.clear();
+            qrcode.makeCode(currentCode);
+
+            await tagVoucher(currentCode);
+
+            currentIndex++;
+            receiptInput.value = "";
+        }
+
+        function copyToClipboard() {
+            const text = codeTextDiv.textContent;
+            if (text === "Click to copy code" || text === "No more codes" || text === "No code available") return;
+
+            navigator.clipboard.writeText(text).then(() => {
+                copyButton.classList.add("copied");
+                copyButton.textContent = "Copied!";
+                setTimeout(() => {
+                    copyButton.classList.remove("copied");
+                    copyButton.textContent = "Copy";
+                }, 1000);
+            }).catch(err => {
+                console.error("Failed to copy: ", err);
+            });
+        }
+
+        window.onload = fetchSheetData;
+    </script>
+</body>
+</html>
